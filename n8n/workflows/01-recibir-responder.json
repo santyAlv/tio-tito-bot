@@ -1,0 +1,267 @@
+{
+  "name": "Tío Tito - Recibir y Responder",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tio-tito-mensajes",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-entrada",
+      "name": "Webhook Evolution",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "tio-tito-mensajes"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\n\nconst data = body.data || body;\nconst key = data.key || {};\nconst message = data.message || {};\n\nconst rawJid = key.remoteJid || '';\nlet remoteJid = rawJid;\n\nif (rawJid.endsWith('@lid') && key.remoteJidAlt) {\n  remoteJid = key.remoteJidAlt;\n} else if (rawJid.endsWith('@lid') && key.senderPn) {\n  remoteJid = `${key.senderPn}@s.whatsapp.net`;\n}\n\nlet enviarA = rawJid;\nif (rawJid.endsWith('@lid') && key.remoteJidAlt) {\n  enviarA = key.remoteJidAlt;\n} else if (remoteJid) {\n  enviarA = remoteJid;\n}\n\nconst fromMe = key.fromMe || false;\nconst messageId = key.id || '';\nconst pushName = data.pushName || 'Desconocido';\n\nfunction extraerTexto(msg) {\n  if (!msg) return '';\n  if (msg.conversation) return msg.conversation;\n  if (msg.extendedTextMessage?.text) return msg.extendedTextMessage.text;\n  if (msg.imageMessage?.caption) return msg.imageMessage.caption;\n  if (msg.videoMessage?.caption) return msg.videoMessage.caption;\n  return '';\n}\n\nconst texto = extraerTexto(message);\nconst ctx = message.extendedTextMessage?.contextInfo\n  || message.imageMessage?.contextInfo\n  || message.videoMessage?.contextInfo\n  || message.stickerMessage?.contextInfo\n  || {};\n\nconst quoted = ctx.quotedMessage || null;\nconst quotedText = extraerTexto(quoted);\nconst quotedParticipant = ctx.participant || ctx.quotedParticipant || '';\nconst mentionedJid = ctx.mentionedJid || [];\n\n// Solo marcamos que HAY un reply. Cerebro decide si el citado es de Tío Tito.\nconst esReplyBot = false;\n\nconst esGrupo = remoteJid.endsWith('@g.us') || rawJid.endsWith('@g.us');\nconst esPrivado = remoteJid.endsWith('@s.whatsapp.net') || rawJid.endsWith('@lid');\nconst remitenteJid = data.participant || remoteJid || rawJid;\n\nreturn [{\n  json: {\n    remoteJid,\n    enviarA,\n    rawJid,\n    fromMe,\n    messageId,\n    pushName,\n    texto,\n    esGrupo,\n    esPrivado,\n    remitenteJid,\n    quotedText,\n    quotedParticipant,\n    mentionedJid,\n    esReplyBot,\n    procesar: (esGrupo || esPrivado) && !fromMe && texto.length > 0\n  }\n}];\n"
+      },
+      "id": "parsear-mensaje",
+      "name": "Parsear Mensaje",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-procesar",
+              "leftValue": "={{ $json.procesar }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filtro-grupo",
+      "name": "Es Grupo o Privado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://172.24.0.1:8000/mensaje",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ grupo_jid: $json.remoteJid, contenido: $json.texto, remitente_jid: $json.remitenteJid, remitente_nombre: $json.pushName, message_id: $json.messageId, es_reply_bot: !!$json.esReplyBot, quoted_text: $json.quotedText || '', mentioned_jids: $json.mentionedJid || [] }) }}",
+        "options": {}
+      },
+      "id": "guardar-mensaje",
+      "name": "Guardar en Cerebro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-responder",
+              "leftValue": "={{ $json.debe_responder }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filtro-mencion",
+      "name": "Responder?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://172.24.0.1:8000/responder",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ grupo_jid: $('Parsear Mensaje').item.json.remoteJid, pregunta: $('Parsear Mensaje').item.json.texto, remitente_nombre: $('Parsear Mensaje').item.json.pushName, remitente_jid: $('Parsear Mensaje').item.json.remitenteJid, es_reply_bot: !!$('Parsear Mensaje').item.json.esReplyBot, quoted_text: $('Parsear Mensaje').item.json.quotedText || '', mentioned_jids: $('Parsear Mensaje').item.json.mentionedJid || [] }) }}",
+        "options": {}
+      },
+      "id": "generar-respuesta",
+      "name": "Generar Respuesta IA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "amount": "={{ Math.ceil($json.delay_ms / 1000) }}",
+        "unit": "seconds"
+      },
+      "id": "delay-respuesta",
+      "name": "Esperar (natural)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://172.24.0.1:8080/message/sendText/tiotito",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $('Parsear Mensaje').item.json.enviarA }}\",\n  \"text\": \"{{ $('Generar Respuesta IA').item.json.respuesta }}\"\n}",
+        "options": {}
+      },
+      "id": "enviar-respuesta",
+      "name": "Enviar Respuesta WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1780,
+        100
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "EVOLUTION_CREDENTIAL_ID",
+          "name": "Evolution API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Evolution": {
+      "main": [
+        [
+          {
+            "node": "Parsear Mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Mensaje": {
+      "main": [
+        [
+          {
+            "node": "Es Grupo o Privado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Es Grupo o Privado?": {
+      "main": [
+        [
+          {
+            "node": "Guardar en Cerebro",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Guardar en Cerebro": {
+      "main": [
+        [
+          {
+            "node": "Responder?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Responder?": {
+      "main": [
+        [
+          {
+            "node": "Generar Respuesta IA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Generar Respuesta IA": {
+      "main": [
+        [
+          {
+            "node": "Esperar (natural)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Esperar (natural)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Respuesta WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    {
+      "name": "tio-tito"
+    }
+  ]
+}

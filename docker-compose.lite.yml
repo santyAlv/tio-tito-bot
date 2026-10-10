@@ -1,0 +1,22 @@
+# Modo LIVIANO — sin PostgreSQL, usa SQLite (~50 MB RAM)
+# Uso: docker compose -f docker-compose.lite.yml up -d
+
+services:
+  cerebro:
+    build: ./services/cerebro
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:///data/tiotito.db
+    volumes:
+      - ./prompts:/app/prompts:ro
+      - cerebro_data:/app/data
+    ports:
+      - "${CEREBRO_PORT:-8000}:8000"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  cerebro_data:

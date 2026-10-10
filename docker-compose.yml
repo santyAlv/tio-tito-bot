@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tiotito}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tiotito}
+      POSTGRES_DB: ${POSTGRES_DB:-tiotito}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tiotito}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  cerebro:
+    build: ./services/cerebro
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tiotito}:${POSTGRES_PASSWORD:-tiotito}@postgres:5432/${POSTGRES_DB:-tiotito}
+    volumes:
+      - ./prompts:/app/prompts:ro
+    ports:
+      - "${CEREBRO_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  evolution:
+    image: atendai/evolution-api:v2.2.3
+    restart: unless-stopped
+    profiles: ["evolution"]
+    environment:
+      SERVER_URL: ${EVOLUTION_URL:-http://localhost:8080}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://${POSTGRES_USER:-tiotito}:${POSTGRES_PASSWORD:-tiotito}@postgres:5432/${POSTGRES_DB:-tiotito}?schema=evolution
+      WEBHOOK_GLOBAL_ENABLED: "false"
+    volumes:
+      - evolution_instances:/evolution/instances
+    ports:
+      - "${EVOLUTION_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  evolution_instances:

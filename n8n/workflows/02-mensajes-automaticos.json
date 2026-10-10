@@ -1,0 +1,117 @@
+{
+  "name": "Tío Tito - Mensajes Automáticos",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 45
+            }
+          ]
+        }
+      },
+      "id": "cron-auto",
+      "name": "Cada 45 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CEREBRO_URL }}/mensaje-automatico",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"grupo_jid\": \"{{ $env.GRUPO_JID }}\"\n}",
+        "options": {}
+      },
+      "id": "generar-auto",
+      "name": "Generar Mensaje Espontáneo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-enviar",
+              "leftValue": "={{ $json.enviar }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filtro-enviar",
+      "name": "Enviar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "amount": "={{ Math.ceil($json.delay_ms / 1000) }}",
+        "unit": "seconds"
+      },
+      "id": "delay-auto",
+      "name": "Esperar",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.EVOLUTION_URL }}/message/sendText/{{ $env.EVOLUTION_INSTANCE }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $env.GRUPO_JID }}\",\n  \"text\": \"{{ $('Generar Mensaje Espontáneo').item.json.mensaje }}\"\n}",
+        "options": {}
+      },
+      "id": "enviar-auto",
+      "name": "Enviar a WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "EVOLUTION_CREDENTIAL_ID",
+          "name": "Evolution API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cada 45 minutos": {
+      "main": [[{ "node": "Generar Mensaje Espontáneo", "type": "main", "index": 0 }]]
+    },
+    "Generar Mensaje Espontáneo": {
+      "main": [[{ "node": "Enviar?", "type": "main", "index": 0 }]]
+    },
+    "Enviar?": {
+      "main": [
+        [{ "node": "Esperar", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Esperar": {
+      "main": [[{ "node": "Enviar a WhatsApp", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [{ "name": "tio-tito" }]
+}
